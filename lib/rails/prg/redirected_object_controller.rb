@@ -76,8 +76,58 @@ module Rails
         ensure_redirected_params_are_safe!(instance_params)
 
         instance_params.each do |attribute, value|
-          instance.public_send("#{attribute}=", value)
+          if model_attributes?(attribute, value)
+            model_name = associated_model_name(attribute)
+            model = build_associated_model(attribute, value)
+
+            instance.public_send("#{model_name}=", model)
+          else
+            instance.public_send("#{attribute}=", value)
+          end
         end
+      end
+
+      # returns true if the attributes value hash specifies attributes for
+      # nested associations.
+      def model_attributes?(attribute, value)
+        attribute.end_with?('_attributes') &&
+          value.is_a?(ActionController::Parameters)
+      end
+
+      def build_associated_model(attribute, value)
+        nested_models = build_nested_models!(value)
+        associated_model = associated_model_class(attribute).new(value)
+        nested_models.each do |nested_model_name, nested_model|
+          associated_model.public_send("#{nested_model_name}=", nested_model)
+        end
+
+        associated_model
+      end
+
+      def build_nested_models!(attributes)
+        models = {}
+        attributes.delete_if do |name, value|
+          if model_attributes?(name, value)
+            model_name = associated_model_name(name)
+            model = build_associated_model(name, value)
+
+            models[model_name] = model
+
+            true
+          end
+        end
+
+        models
+      end
+
+      def associated_model_name(attribute)
+        return unless attribute.end_with?('_attributes')
+
+        attribute.chomp('_attributes')
+      end
+
+      def associated_model_class(attribute)
+        associated_model_name(attribute).try(:camelize).try(:constantize)
       end
     end
   end
